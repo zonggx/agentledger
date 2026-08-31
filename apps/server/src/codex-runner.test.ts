@@ -6,9 +6,12 @@ describe("Codex runner protocol", () => {
     const args = buildCodexArgs(
       {
         agentId: "agent",
+        runId: "run",
         workspacePath: "/tmp/workspace",
         prompt: "build a calculator",
         threadId: null,
+        actionGatewayUrl: "http://127.0.0.1:3000",
+        actionCapability: "test-capability",
       },
       "workspace-write",
     );
@@ -28,9 +31,12 @@ describe("Codex runner protocol", () => {
     const args = buildCodexArgs(
       {
         agentId: "agent",
+        runId: "run",
         workspacePath: "/tmp/workspace",
         prompt: "add tests",
         threadId: "thread-123",
+        actionGatewayUrl: "http://127.0.0.1:3000",
+        actionCapability: "test-capability",
       },
       "workspace-write",
     );

@@ -54,6 +54,9 @@ export function buildContainerRunArgs(
     "--label",
     "io.codejam.instance-id=" + config.runtimeInstanceId,
     ...(engineName === "podman" ? ["--userns", "keep-id"] : []),
+    ...(engineName === "docker"
+      ? ["--add-host", "host.docker.internal:host-gateway"]
+      : []),
     "--network",
     "bridge",
     "--security-opt",
@@ -76,6 +79,10 @@ export function buildContainerRunArgs(
     "HOME=/tmp",
     "--env",
     "NO_COLOR=1",
+    "--env",
+    "LAUNCHPAD_ACTION_URL",
+    "--env",
+    "LAUNCHPAD_ACTION_TOKEN",
     "--mount",
     "type=bind,src=" + request.workspacePath + ",dst=/workspace",
     "--mount",
@@ -147,7 +154,7 @@ export class ContainerCodexRunner implements AgentRunner {
       buildContainerRunArgs(request, this.config),
       {
         cwd: request.workspacePath,
-        env: this.childEnvironment(),
+        env: this.childEnvironment(request),
         stdio: ["ignore", "pipe", "pipe"],
       },
     );
@@ -235,10 +242,16 @@ export class ContainerCodexRunner implements AgentRunner {
     }
   }
 
-  private childEnvironment(): NodeJS.ProcessEnv {
+  private childEnvironment(request?: RunnerRequest): NodeJS.ProcessEnv {
     const environment: NodeJS.ProcessEnv = {
       ARK_API_KEY: this.config.arkApiKey,
       NO_COLOR: "1",
+      ...(request
+        ? {
+            LAUNCHPAD_ACTION_URL: request.actionGatewayUrl,
+            LAUNCHPAD_ACTION_TOKEN: request.actionCapability,
+          }
+        : {}),
     };
     for (const name of [
       "PATH",

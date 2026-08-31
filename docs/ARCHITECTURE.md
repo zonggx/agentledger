@@ -9,8 +9,14 @@ flowchart LR
     Service --> Store["JSON store"]
     Service --> Workspace["Agent workspace"]
     Service --> Runner{"AgentRunner"}
+    Service --> Capability["Run-scoped action capability"]
     Runner -->|Local POC| Container["Disposable Runtime container"]
     Runner -->|ECS| Process["Codex child process"]
+    Container --> Tool["Booking tool client"]
+    Process --> Tool
+    Tool --> Gateway["Transactional action gateway"]
+    Gateway --> Ledger["Action ledger"]
+    Gateway --> Provider["Independent mock provider store"]
     Container --> Ark["Volcengine Ark"]
     Process --> Ark
 ```
@@ -41,10 +47,34 @@ stopped  error
 
 Interrupted Runs become `cancelled` after a restart.
 
+### Agent Action Ledger
+
+`ActionCoordinator` is the transaction boundary for `booking.create`. It
+persists `prepared` and `executing` before invoking the independent mock
+provider. The provider owns idempotency; the coordinator owns orchestration,
+reconciliation, evidence, and input-conflict rejection.
+
+Each active Run receives a random, time-limited capability for the booking
+tool. Only its hash is retained in memory. The internal gateway derives the
+Agent and Run from that capability instead of trusting request body identity.
+
+```text
+prepared -> executing -> succeeded
+                 |
+                 +-> worker crash -> executing -> reconcile -> succeeded
+                 |
+                 +-> ambiguous provider error -> outcome_unknown
+```
+
+The provider data is deliberately stored separately from `launchpad.json` so
+tests can reproduce the critical window where the external effect committed
+but the local success record did not.
+
 ### Storage
 
 ```text
 data/launchpad.json       Agent, message, and Run metadata
+data/mock-bookings.json   Independent idempotent mock provider state
 workspaces/AgentID/       Agent-created files
 workspaces/.deleted/      Archived deleted workspaces
 codex-home/               Codex configuration and sessions

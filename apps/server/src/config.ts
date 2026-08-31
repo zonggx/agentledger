@@ -32,6 +32,10 @@ const envSchema = z.object({
     .max(48)
     .regex(/^[a-zA-Z0-9_.-]+$/)
     .default("default"),
+  ACTION_GATEWAY_URL: z.string().url().optional(),
+  ENABLE_FAILURE_INJECTION: z
+    .enum(["true", "false"])
+    .default("false"),
   APP_AUTH_TOKEN: z
     .string()
     .trim()
@@ -83,6 +87,17 @@ export function loadConfig(environment: NodeJS.ProcessEnv = process.env) {
     containerPidsLimit: env.CONTAINER_PIDS_LIMIT,
     containerUser: env.CONTAINER_USER?.trim() || defaultContainerUser,
     runtimeInstanceId: env.RUNTIME_INSTANCE_ID,
+    actionGatewayUrl:
+      env.ACTION_GATEWAY_URL?.replace(/\/+$/, "") ??
+      (env.RUNTIME_PROVIDER === "container"
+        ? "http://" +
+          (env.CONTAINER_ENGINE.split(/[\\/]/).at(-1)?.toLowerCase() === "podman"
+            ? "host.containers.internal"
+            : "host.docker.internal") +
+          ":" +
+          env.PORT
+        : "http://127.0.0.1:" + env.PORT),
+    enableFailureInjection: env.ENABLE_FAILURE_INJECTION === "true",
     authToken,
     arkApiKey: env.ARK_API_KEY?.trim() ?? "",
     arkModel: env.ARK_MODEL?.trim() ?? "",

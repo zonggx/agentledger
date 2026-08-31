@@ -4,13 +4,19 @@ A minimal Agent platform for three-day middleware hackathons. It provides Agent
 CRUD, a browser Playground, persistent workspaces, and Codex CLI backed by the
 Volcengine Ark Responses API.
 
+This submission implements **Agent Action Ledger**, crash-safe middleware for
+one controlled side-effecting tool. A booking is recorded before execution,
+called with a stable provider idempotency key, and reconciled after an ambiguous
+failure so a resumed Agent does not create a duplicate.
+
 Run it locally with Docker, Colima, or rootless Podman, or deploy it to
 Volcengine ECS.
 
 > [!WARNING]
-> This is a single-user proof of concept. It intentionally has no identity,
-> tracing, audit, or hardened sandbox middleware. Do not use production data or
-> credentials. See [SECURITY.md](SECURITY.md).
+> This is a single-user proof of concept with a mock booking provider. It does
+> not make arbitrary shell commands transactional and is not a production
+> booking or payment system. Do not use production data or credentials. See
+> [SECURITY.md](SECURITY.md).
 
 ## Screenshots
 
@@ -30,6 +36,39 @@ Volcengine ECS.
 - Persistent Agent workspaces and Codex sessions
 - Disposable Docker, Colima, or Podman container for each local turn
 - Docker and Terraform deployment paths for Volcengine ECS
+- Durable action ledger with run-scoped tool capabilities
+- Provider-backed idempotency, retry replay, and startup reconciliation
+- Controlled crash injection and a correlated recovery timeline
+
+## Selected middleware: Agent Action Ledger
+
+The protected failure window is:
+
+```text
+provider accepted the booking -> worker stopped -> local success not recorded
+```
+
+The mock provider persists independently from the control-plane ledger. On a
+retry or restart, the coordinator queries the provider using the original
+idempotency key and records the existing booking as the durable result. Gateway
+requests may repeat; the provider side effect is created at most once.
+
+### Three-minute demo
+
+Set `ENABLE_FAILURE_INJECTION=true`, create an Agent, and select **Arm booking
+crash**. Send this Playground task:
+
+```text
+Use the transactional booking tool to book SIN-NRT on 2026-09-15 for
+traveler demo-alice. Use operation ID hackathon-demo-001. If the tool fails,
+retry once using exactly the same operation ID, then report the booking ID.
+```
+
+The first attempt creates the mock provider booking and then hits the controlled
+worker failure. The retry reconciles the provider record. The Action Ledger
+panel shows preparation, execution, failure, recovery, and one provider booking.
+
+See [the detailed demo and guarantee](docs/ACTION_LEDGER.md).
 
 ## Requirements
 
@@ -206,6 +245,8 @@ cp deploy/volcengine/terraform.tfvars.example \
 | `RUNTIME_PROVIDER` | `local-process` | `container` for disposable local Runtime containers. |
 | `CODEX_SANDBOX_MODE` | `workspace-write` | Codex inner sandbox mode. |
 | `CODEX_TIMEOUT_MS` | `600000` | Maximum duration of one turn. |
+| `ENABLE_FAILURE_INJECTION` | `false` | Enables the controlled local crash demo. |
+| `ACTION_GATEWAY_URL` | Runtime-specific | Optional Runtime-to-control-plane override. |
 | `LOCAL_POC_DATA_ROOT` | Platform-specific | Local metadata, workspace, and session directory. |
 
 See [.env.example](.env.example) for all Runtime and resource-limit options.
@@ -217,6 +258,9 @@ flowchart LR
     UI["React Web UI"] --> API["Fastify control plane"]
     API --> Store["JSON metadata and Agent workspaces"]
     API --> Runtime{"Runtime provider"}
+    Runtime --> Tool["Transactional booking tool"]
+    Tool --> Ledger["Action coordinator and durable ledger"]
+    Ledger --> Provider["Independent mock booking provider"]
     Runtime -->|Local POC| Container["Disposable Docker / Colima / Podman container"]
     Runtime -->|ECS profile| Codex["Codex CLI in application container"]
     Container --> Ark["Volcengine Ark Responses API"]
@@ -240,6 +284,7 @@ docker compose config
 ## Documentation
 
 - [Architecture](docs/ARCHITECTURE.md)
+- [Action Ledger demo and guarantees](docs/ACTION_LEDGER.md)
 - [Local POC](docs/LOCAL_POC.md)
 - [Deployment](docs/DEPLOYMENT.md)
 - [Hackathon extension guide](docs/HACKATHON_EXTENSION_GUIDE.md)

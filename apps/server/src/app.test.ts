@@ -2,17 +2,20 @@ import { describe, expect, it } from "vitest";
 import { createApp } from "./app.js";
 import { loadConfig } from "./config.js";
 import type { AgentService } from "./agent-service.js";
+import type { ActionCoordinator } from "./action-coordinator.js";
 
 const service = {
   listAgents: () => [],
   systemInfo: async () => ({}),
 } as unknown as AgentService;
+const actions = {} as unknown as ActionCoordinator;
 
 describe("HTTP boundary", () => {
   it("protects API routes with the configured shared token", async () => {
     const app = await createApp(
       loadConfig({ NODE_ENV: "test", APP_AUTH_TOKEN: "a-strong-test-token" }),
       service,
+      actions,
     );
     const denied = await app.inject({ method: "GET", url: "/api/agents" });
     expect(denied.statusCode).toBe(401);
@@ -27,7 +30,7 @@ describe("HTTP boundary", () => {
   });
 
   it("preserves Fastify client error status codes", async () => {
-    const app = await createApp(loadConfig({ NODE_ENV: "test" }), service);
+    const app = await createApp(loadConfig({ NODE_ENV: "test" }), service, actions);
     const malformed = await app.inject({
       method: "POST",
       url: "/api/agents",

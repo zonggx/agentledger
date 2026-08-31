@@ -1,6 +1,14 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { api, ApiError, setAuthToken } from "./api";
-import type { Agent, AgentRun, Message, SystemInfo } from "./types";
+import type {
+  ActionEvent,
+  Agent,
+  AgentRun,
+  BookingEvidence,
+  Message,
+  SystemInfo,
+  ToolAction,
+} from "./types";
 
 const starterPrompts = [
   "Create a small TypeScript CLI that prints a weather summary from sample JSON.",
@@ -35,6 +43,64 @@ function Spinner() {
   return <span className="spinner" aria-label="Loading" />;
 }
 
+function ActionLedger({
+  actions,
+  events,
+  bookings,
+  onReconcile,
+}: {
+  actions: ToolAction[];
+  events: ActionEvent[];
+  bookings: BookingEvidence[];
+  onReconcile: (actionId: string) => void;
+}) {
+  if (actions.length === 0) return null;
+  return (
+    <section className="action-ledger" aria-label="Agent Action Ledger">
+      <div className="ledger-heading">
+        <div>
+          <span className="eyebrow">Crash-safe middleware</span>
+          <h3>Agent Action Ledger</h3>
+        </div>
+        <span className="booking-count">{bookings.length} provider booking{bookings.length === 1 ? "" : "s"}</span>
+      </div>
+      {actions.map((action) => (
+        <article className="ledger-action" key={action.id}>
+          <div className="ledger-action-header">
+            <div>
+              <strong>{action.inputSummary.route}</strong>
+              <span>{action.operationId} · {action.attemptCount} attempt{action.attemptCount === 1 ? "" : "s"}</span>
+            </div>
+            <span className={"ledger-status ledger-status-" + action.status}>
+              {action.status.replace("_", " ")}
+            </span>
+          </div>
+          {action.resultSummary && (
+            <div className="ledger-result">
+              Booking {action.resultSummary.bookingId.slice(0, 8)}… recovered as the durable result
+            </div>
+          )}
+          <ol className="ledger-events">
+            {events
+              .filter((event) => event.actionId === action.id)
+              .map((event) => (
+                <li key={event.id}>
+                  <time>{formatTime(event.createdAt)}</time>
+                  <span>{event.detail}</span>
+                </li>
+              ))}
+          </ol>
+          {["executing", "outcome_unknown"].includes(action.status) && (
+            <button className="button button-ghost" onClick={() => onReconcile(action.id)}>
+              Reconcile provider state
+            </button>
+          )}
+        </article>
+      ))}
+    </section>
+  );
+}
+
 export default function App() {
   const [agents, setAgents] = useState<Agent[]>([]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -45,6 +111,10 @@ export default function App() {
   const [form, setForm] = useState(emptyForm);
   const [prompt, setPrompt] = useState("");
   const [activeRun, setActiveRun] = useState<AgentRun | null>(null);
+  const [toolActions, setToolActions] = useState<ToolAction[]>([]);
+  const [actionEvents, setActionEvents] = useState<ActionEvent[]>([]);
+  const [bookings, setBookings] = useState<BookingEvidence[]>([]);
+  const [crashArmed, setCrashArmed] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [authRequired, setAuthRequired] = useState<boolean | null>(null);
@@ -77,6 +147,21 @@ export default function App() {
     }
   }, []);
 
+  const refreshActionEvidence = useCallback(async (runId: string, agentId: string) => {
+    const [evidence, provider] = await Promise.all([
+      api.runActions(runId),
+      api.bookings(agentId),
+    ]);
+    if (mountedRef.current && selectedIdRef.current === agentId) {
+      setToolActions(evidence.actions);
+      setActionEvents(evidence.events);
+      setBookings(provider.bookings);
+      if (evidence.events.some((event) => event.type === "worker.crashed")) {
+        setCrashArmed(false);
+      }
+    }
+  }, []);
+
   const bootstrap = useCallback(async () => {
     await Promise.all([refreshAgents(), api.system().then(setSystem)]);
   }, [refreshAgents]);
@@ -98,6 +183,10 @@ export default function App() {
 
   useEffect(() => {
     setActiveRun(null);
+    setToolActions([]);
+    setActionEvents([]);
+    setBookings([]);
+    setCrashArmed(false);
     setShowSettings(false);
     if (!selectedId) {
       setMessages([]);
@@ -108,6 +197,7 @@ export default function App() {
         if (selectedIdRef.current !== selectedId) return;
         const latest = result.runs[0] ?? null;
         setActiveRun(latest);
+        if (latest) void refreshActionEvidence(latest.id, selectedId);
         if (latest && ["queued", "running"].includes(latest.status)) {
           void pollRun(latest.id, selectedId).catch((reason) =>
             setError(reason instanceof Error ? reason.message : String(reason)),
@@ -117,7 +207,7 @@ export default function App() {
       .catch((reason) =>
         setError(reason instanceof Error ? reason.message : String(reason)),
       );
-  }, [refreshMessages, selectedId]);
+  }, [refreshActionEvidence, refreshMessages, selectedId]);
 
   useEffect(() => {
     if (selected) {
@@ -210,6 +300,7 @@ export default function App() {
         if (!mountedRef.current) return;
         const result = await api.run(runId);
         if (selectedIdRef.current === agentId) setActiveRun(result.run);
+        await refreshActionEvidence(runId, agentId);
         if (!["queued", "running"].includes(result.run.status)) {
           await Promise.all([refreshMessages(agentId), refreshAgents()]);
           return;
@@ -217,6 +308,28 @@ export default function App() {
       }
     } finally {
       pollingRunIds.current.delete(runId);
+    }
+  };
+
+  const armBookingCrash = async () => {
+    if (!selected) return;
+    setError(null);
+    try {
+      await api.armBookingCrash(selected.id);
+      setCrashArmed(true);
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : String(reason));
+    }
+  };
+
+  const reconcileAction = async (actionId: string) => {
+    if (!selected || !activeRun) return;
+    setError(null);
+    try {
+      await api.reconcileAction(actionId);
+      await refreshActionEvidence(activeRun.id, selected.id);
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : String(reason));
     }
   };
 
@@ -483,9 +596,20 @@ export default function App() {
                   <span className="eyebrow">Playground</span>
                   <h2>Build something with your Agent</h2>
                 </div>
-                <div className="session-info">
-                  <span className="pulse" />
-                  {selected.codexThreadId ? "Session connected" : "New session"}
+                <div className="playground-controls">
+                  {system?.failureInjectionEnabled && (
+                    <button
+                      className={"button " + (crashArmed ? "button-danger" : "button-ghost")}
+                      onClick={armBookingCrash}
+                      disabled={selected.status === "busy" || crashArmed}
+                    >
+                      {crashArmed ? "Crash armed" : "Arm booking crash"}
+                    </button>
+                  )}
+                  <div className="session-info">
+                    <span className="pulse" />
+                    {selected.codexThreadId ? "Session connected" : "New session"}
+                  </div>
                 </div>
               </div>
 
@@ -540,6 +664,13 @@ export default function App() {
                 )}
                 <div ref={messageEnd} />
               </div>
+
+              <ActionLedger
+                actions={toolActions}
+                events={actionEvents}
+                bookings={bookings}
+                onReconcile={(actionId) => void reconcileAction(actionId)}
+              />
 
               <form className="composer" onSubmit={sendMessage}>
                 <textarea

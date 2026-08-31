@@ -108,7 +108,15 @@ export RUNTIME_INSTANCE_ID="${RUNTIME_INSTANCE_ID:-local-$(id -u)-$(printf '%s' 
 
 mkdir -p "$APP_DATA_DIR" "$AGENT_WORKSPACE_ROOT" "$CODEX_HOME"
 log "Persistent state: $local_state_root"
-export CONTAINER_USER="${CONTAINER_USER:-$(id -u):$(id -g)}"
+
+# Git Bash reports Windows SID-derived UID/GID values that cannot write to
+# Docker Desktop bind mounts. The Runtime is still isolated in a disposable
+# Linux container, so use root inside that container on Windows hosts.
+case "$(uname -s)" in
+  MINGW*|MSYS*|CYGWIN*) default_container_user="0:0" ;;
+  *) default_container_user="$(id -u):$(id -g)" ;;
+esac
+export CONTAINER_USER="${CONTAINER_USER:-$default_container_user}"
 
 log "Building $runtime_image from Dockerfile.runtime (base: $runtime_base_image)."
 "$engine" build \

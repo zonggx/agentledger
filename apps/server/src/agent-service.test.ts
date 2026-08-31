@@ -7,6 +7,9 @@ import { loadConfig } from "./config.js";
 import { JsonStore } from "./store.js";
 import type { AgentRunner, RunnerRequest, RunnerResult } from "./types.js";
 import { WorkspaceManager } from "./workspace.js";
+import { ActionCapabilityRegistry, FailureInjector } from "./action-capabilities.js";
+import { ActionCoordinator } from "./action-coordinator.js";
+import { MockBookingProvider } from "./mock-booking-provider.js";
 
 class FakeRunner implements AgentRunner {
   async run(request: RunnerRequest): Promise<RunnerResult> {
@@ -46,11 +49,21 @@ async function makeService(runner: AgentRunner = new FakeRunner()): Promise<Agen
     ARK_API_KEY: "test-key",
     ARK_MODEL: "ep-test",
   });
+  const store = new JsonStore(path.join(root, "data", "db.json"));
+  const provider = new MockBookingProvider(path.join(root, "data", "provider.json"));
+  const actions = new ActionCoordinator(
+    store,
+    provider,
+    new ActionCapabilityRegistry(),
+    new FailureInjector(),
+  );
+  await provider.initialize();
   const service = new AgentService(
     config,
-    new JsonStore(path.join(root, "data", "db.json")),
+    store,
     new WorkspaceManager(path.join(root, "workspaces")),
     runner,
+    actions,
   );
   await service.initialize();
   return service;

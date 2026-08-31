@@ -21,9 +21,12 @@ describe("Container Codex runner", () => {
     const args = buildContainerRunArgs(
       {
         agentId: "agent/unsafe",
+        runId: "run",
         workspacePath: "/tmp/agent-workspace",
         prompt: "write a small program",
         threadId: null,
+        actionGatewayUrl: "http://host.docker.internal:3000",
+        actionCapability: "test-capability",
       },
       config,
     );
@@ -33,7 +36,9 @@ describe("Container Codex runner", () => {
     );
     expect(args).toContain("runtime:test");
     expect(args).toContain("type=bind,src=/tmp/agent-workspace,dst=/workspace");
-    expect(args).toContain("type=bind,src=/tmp/codex-home,dst=/codex-home");
+    expect(args).toContain(
+      "type=bind,src=" + config.codexHome + ",dst=/codex-home",
+    );
     expect(args).toContain("501:20");
     expect(args).toContain("workspace-write");
     expect(args).toContain("/workspace");
@@ -51,9 +56,12 @@ describe("Container Codex runner", () => {
     const args = buildContainerRunArgs(
       {
         agentId: "agent",
+        runId: "run",
         workspacePath: "/tmp/workspace",
         prompt: "continue",
         threadId: "thread-123",
+        actionGatewayUrl: "http://host.docker.internal:3000",
+        actionCapability: "test-capability",
       },
       config,
     );

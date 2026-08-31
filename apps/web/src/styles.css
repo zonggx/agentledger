@@ -186,6 +186,118 @@ button {
   background: #f1d9d6;
 }
 
+.playground-controls {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.action-ledger {
+  margin: 0 24px 16px;
+  padding: 18px;
+  border: 1px solid #d9d4f3;
+  border-radius: 14px;
+  background: #f7f5ff;
+}
+
+.ledger-heading,
+.ledger-action-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.ledger-heading h3 {
+  margin: 3px 0 0;
+  font-size: 16px;
+}
+
+.booking-count {
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.ledger-action {
+  margin-top: 14px;
+  padding: 14px;
+  border: 1px solid #e2def5;
+  border-radius: 11px;
+  background: white;
+}
+
+.ledger-action-header strong,
+.ledger-action-header span {
+  display: block;
+}
+
+.ledger-action-header strong {
+  font-size: 13px;
+}
+
+.ledger-action-header div > span {
+  margin-top: 3px;
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.ledger-status {
+  padding: 5px 8px;
+  border-radius: 999px;
+  background: #eceae4;
+  font-size: 10px;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+
+.ledger-status-succeeded {
+  color: #226a4f;
+  background: #ddf4e9;
+}
+
+.ledger-status-executing,
+.ledger-status-prepared {
+  color: #66531e;
+  background: #f6edca;
+}
+
+.ledger-status-outcome_unknown,
+.ledger-status-failed {
+  color: #9f4141;
+  background: #f8dfdc;
+}
+
+.ledger-result {
+  margin-top: 12px;
+  padding: 9px 10px;
+  border-radius: 8px;
+  color: #32644f;
+  background: #edf8f2;
+  font-size: 11px;
+}
+
+.ledger-events {
+  margin: 12px 0;
+  padding: 0;
+  list-style: none;
+  display: grid;
+  gap: 7px;
+}
+
+.ledger-events li {
+  display: grid;
+  grid-template-columns: 62px minmax(0, 1fr);
+  gap: 9px;
+  color: #555650;
+  font-size: 11px;
+}
+
+.ledger-events time {
+  color: #8a8a83;
+  font-variant-numeric: tabular-nums;
+}
+
 .create-button {
   width: 100%;
   justify-content: flex-start;

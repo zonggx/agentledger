@@ -7,9 +7,11 @@ import { z } from "zod";
 import type { AppConfig } from "./config.js";
 import { HttpError } from "./errors.js";
 import type { AgentService } from "./agent-service.js";
+import { ActionCoordinator, SimulatedWorkerCrash } from "./action-coordinator.js";
 
 const agentIdParams = z.object({ id: z.string().uuid() });
 const runIdParams = z.object({ id: z.string().uuid() });
+const actionIdParams = z.object({ id: z.string().uuid() });
 const createAgentBody = z.object({
   name: z.string().trim().min(1).max(80),
   description: z.string().max(500).optional(),
@@ -22,15 +24,29 @@ const updateAgentBody = createAgentBody.partial().refine(
 const messageBody = z.object({
   content: z.string().trim().min(1).max(50_000),
 });
+const bookingBody = z.object({
+  operationId: z.string().trim().min(3).max(80).regex(/^[A-Za-z0-9._-]+$/),
+  travelerAlias: z.string().trim().min(1).max(40),
+  route: z.string().trim().regex(/^[A-Za-z]{3}-[A-Za-z]{3}$/),
+  date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+});
+const failureInjectionBody = z.object({
+  point: z.literal("after_provider_success"),
+});
 
 export async function createApp(
   config: AppConfig,
   service: AgentService,
+  actions: ActionCoordinator,
 ): Promise<FastifyInstance> {
   const app = Fastify({
     logger: {
       level: config.logLevel,
-      redact: ["req.headers.authorization", "req.headers.cookie"],
+      redact: [
+        "req.headers.authorization",
+        "req.headers.cookie",
+        "req.headers.x-action-capability",
+      ],
     },
     bodyLimit: 1_048_576,
   });
@@ -126,6 +142,56 @@ export async function createApp(
   app.get("/api/runs/:id", async (request) => {
     const { id } = runIdParams.parse(request.params);
     return { run: service.getRun(id) };
+  });
+
+  app.get("/api/runs/:id/actions", async (request) => {
+    const { id } = runIdParams.parse(request.params);
+    service.getRun(id);
+    return actions.listRunEvidence(id);
+  });
+
+  app.get("/api/agents/:id/bookings", async (request) => {
+    const { id } = agentIdParams.parse(request.params);
+    service.getAgent(id);
+    return { bookings: actions.listAgentBookings(id) };
+  });
+
+  app.post("/api/actions/:id/reconcile", async (request) => {
+    const { id } = actionIdParams.parse(request.params);
+    return { action: await actions.reconcile(id) };
+  });
+
+  app.post("/api/agents/:id/failure-injections", async (request, reply) => {
+    const { id } = agentIdParams.parse(request.params);
+    failureInjectionBody.parse(request.body);
+    service.getAgent(id);
+    if (!config.enableFailureInjection) {
+      return reply.code(403).send({
+        error: "Controlled failure injection is disabled",
+      });
+    }
+    actions.failures.arm(id);
+    return { armed: true, point: "after_provider_success" };
+  });
+
+  app.post("/internal/tool-actions/booking", async (request, reply) => {
+    const body = bookingBody.parse(request.body);
+    const token =
+      typeof request.headers["x-action-capability"] === "string"
+        ? request.headers["x-action-capability"]
+        : "";
+    try {
+      return await actions.executeBooking(token, body);
+    } catch (error) {
+      if (error instanceof SimulatedWorkerCrash) {
+        return reply.code(503).send({
+          error: error.message,
+          code: "SIMULATED_WORKER_CRASH",
+          actionId: error.actionId,
+        });
+      }
+      throw error;
+    }
   });
 
   if (config.nodeEnv === "production") {

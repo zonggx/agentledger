@@ -12,6 +12,7 @@ import type {
   UpdateAgentInput,
 } from "./types.js";
 import { WorkspaceManager } from "./workspace.js";
+import { ActionCoordinator } from "./action-coordinator.js";
 
 const now = () => new Date().toISOString();
 
@@ -24,6 +25,7 @@ export class AgentService {
     private readonly store: JsonStore,
     private readonly workspaces: WorkspaceManager,
     private readonly runner: AgentRunner,
+    private readonly actions: ActionCoordinator,
   ) {}
 
   async initialize(): Promise<void> {
@@ -109,9 +111,18 @@ export class AgentService {
     await this.cancelExecution(id);
     const archivedWorkspace = await this.workspaces.archive(agent);
     await this.store.mutate((database) => {
+      const actionIds = new Set(
+        database.actions
+          .filter((action) => action.agentId === id)
+          .map((action) => action.id),
+      );
       database.agents = database.agents.filter((item) => item.id !== id);
       database.messages = database.messages.filter((item) => item.agentId !== id);
       database.runs = database.runs.filter((item) => item.agentId !== id);
+      database.actions = database.actions.filter((item) => item.agentId !== id);
+      database.actionEvents = database.actionEvents.filter(
+        (item) => !actionIds.has(item.actionId),
+      );
     });
     return { archivedWorkspace };
   }
@@ -229,6 +240,8 @@ export class AgentService {
         this.config.runtimeProvider === "container"
           ? "Codex CLI in " + this.config.containerEngine + " Runtime"
           : "Codex CLI in application container",
+      actionLedgerEnabled: true,
+      failureInjectionEnabled: this.config.enableFailureInjection,
     };
   }
 
@@ -244,12 +257,25 @@ export class AgentService {
       if (this.cancellationRequests.has(agentAtStart.id)) {
         throw new RunCancelledError();
       }
-      const result = await this.runner.run({
-        agentId: agentAtStart.id,
-        workspacePath: agentAtStart.workspacePath,
-        prompt: run.prompt,
-        threadId: agentAtStart.codexThreadId,
-      });
+      const actionCapability = this.actions.capabilities.issue(
+        agentAtStart.id,
+        run.id,
+        this.config.codexTimeoutMs + 30_000,
+      );
+      let result;
+      try {
+        result = await this.runner.run({
+          agentId: agentAtStart.id,
+          runId: run.id,
+          workspacePath: agentAtStart.workspacePath,
+          prompt: run.prompt,
+          threadId: agentAtStart.codexThreadId,
+          actionGatewayUrl: this.config.actionGatewayUrl,
+          actionCapability,
+        });
+      } finally {
+        this.actions.capabilities.revoke(run.id);
+      }
       const completedAt = now();
       await this.store.mutate((database) => {
         const storedRun = database.runs.find((item) => item.id === run.id);

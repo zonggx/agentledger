@@ -1,4 +1,12 @@
-import type { Agent, AgentRun, Message, SystemInfo } from "./types";
+import type {
+  ActionEvent,
+  Agent,
+  AgentRun,
+  BookingEvidence,
+  Message,
+  SystemInfo,
+  ToolAction,
+} from "./types";
 
 export class ApiError extends Error {
   constructor(
@@ -78,4 +86,24 @@ export const api = {
       },
     ),
   run: (id: string) => request<{ run: AgentRun }>("/api/runs/" + id),
+  runActions: (id: string) =>
+    request<{ actions: ToolAction[]; events: ActionEvent[] }>(
+      "/api/runs/" + id + "/actions",
+    ),
+  bookings: (agentId: string) =>
+    request<{ bookings: BookingEvidence[] }>(
+      "/api/agents/" + agentId + "/bookings",
+    ),
+  armBookingCrash: (agentId: string) =>
+    request<{ armed: boolean; point: string }>(
+      "/api/agents/" + agentId + "/failure-injections",
+      {
+        method: "POST",
+        body: JSON.stringify({ point: "after_provider_success" }),
+      },
+    ),
+  reconcileAction: (actionId: string) =>
+    request<{ action: ToolAction }>("/api/actions/" + actionId + "/reconcile", {
+      method: "POST",
+    }),
 };
